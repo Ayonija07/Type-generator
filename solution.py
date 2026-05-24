@@ -1,266 +1,227 @@
 #!/usr/bin/env python3
-# Input : line 1 = T; then per case: line A = root name, line B = compact JSON.
-# Output: per-case blocks joined by a line `---`, ending with one '\n'.
+"""
+JSON to TypeScript Type Generator
+Converts JSON arrays to TypeScript interface declarations
+"""
 
 import sys
 import json
-from typing import Any, Dict, Set, List
+from typing import Any, Dict, Set, List, Optional
 from dataclasses import dataclass, field
 
 
 @dataclass
 class TypeInfo:
+    """Represents a TypeScript type"""
     kind: str  # 'primitive', 'array', 'object', 'union'
-    primitive_types: Set[str] = field(default_factory=set)
-    array_element_types: Set[str] = field(default_factory=set)
-    object_name: str = ""
+    value: Optional[str] = None  # For single primitive/object types
+    union_parts: Set[str] = field(default_factory=set)  # For unions
 
 
 @dataclass
 class InterfaceProperty:
-    types: TypeInfo
+    """A property in an interface"""
+    type_str: str
     is_optional: bool
 
 
 @dataclass
 class InterfaceDefinition:
+    """A TypeScript interface"""
     name: str
     properties: Dict[str, InterfaceProperty] = field(default_factory=dict)
 
 
-def allocate_interface_name(base_key: str, used_names: Set[str]) -> str:
-    """Allocate a unique interface name based on the key."""
-    base_name = base_key[0].upper() + base_key[1:]
-    name = base_name
-    counter = 2
+def char_code_key(s: str) -> tuple:
+    """Convert string to tuple of char codes for ASCII sorting"""
+    return tuple(ord(c) for c in s)
+
+
+def allocate_name(base: str, used: Set[str]) -> str:
+    """Allocate a unique interface name"""
+    name = base[0].upper() + base[1:] if base else "Unknown"
     
-    while name in used_names:
-        name = base_name + str(counter)
+    if name not in used:
+        used.add(name)
+        return name
+    
+    counter = 2
+    while f"{name}{counter}" in used:
         counter += 1
     
-    used_names.add(name)
-    return name
+    result = f"{name}{counter}"
+    used.add(result)
+    return result
 
 
-def compare_type_strings(a: str, b: str) -> tuple:
-    """Return tuple of ord values for proper ASCII comparison."""
-    return tuple(ord(c) for c in a)
-
-
-def infer_type(
+def infer_type_from_value(
     value: Any,
-    parent_key: str,
+    key: str,
     interfaces: Dict[str, InterfaceDefinition],
     used_names: Set[str]
-) -> TypeInfo:
-    """Infer the TypeInfo from a JSON value."""
+) -> str:
+    """Infer type string from a single JSON value"""
     
     if value is None:
-        return TypeInfo(kind='primitive', primitive_types={'null'})
+        return "null"
     
-    if isinstance(value, bool):  # Must check before int since bool is subclass of int
-        return TypeInfo(kind='primitive', primitive_types={'boolean'})
+    if isinstance(value, bool):
+        return "boolean"
     
     if isinstance(value, (int, float)):
-        return TypeInfo(kind='primitive', primitive_types={'number'})
+        return "number"
     
     if isinstance(value, str):
-        return TypeInfo(kind='primitive', primitive_types={'string'})
+        return "string"
     
     if isinstance(value, list):
-        element_types: Set[str] = set()
-        object_elements: List[Dict] = []
+        if not value:
+            return "unknown[]"
+        
+        elem_types: Set[str] = set()
+        obj_elements: List[Dict] = []
         
         for elem in value:
             if isinstance(elem, dict):
-                object_elements.append(elem)
+                obj_elements.append(elem)
             else:
-                elem_type = infer_type(elem, parent_key, interfaces, used_names)
-                element_types.add(type_info_to_string(elem_type))
+                elem_types.add(infer_type_from_value(elem, key, interfaces, used_names))
         
-        # Handle object elements
-        if object_elements:
-            iface_name = allocate_interface_name(parent_key, used_names)
-            merged_props: Dict[str, List[TypeInfo]] = {}
+        if obj_elements:
+            # Merge all object elements into one interface
+            merged_props: Dict[str, List[str]] = {}
+            for obj in obj_elements:
+                for k in obj:
+                    if k not in merged_props:
+                        merged_props[k] = []
+                    merged_props[k].append(infer_type_from_value(obj[k], k, interfaces, used_names))
             
-            for obj in object_elements:
-                for key in obj:
-                    if key not in merged_props:
-                        merged_props[key] = []
-                    merged_props[key].append(infer_type(obj[key], key, interfaces, used_names))
+            # Create interface
+            iface_name = allocate_name(key, used_names)
+            iface_props: Dict[str, InterfaceProperty] = {}
+            for k, types in merged_props.items():
+                union_type = sort_and_union(set(types))
+                iface_props[k] = InterfaceProperty(union_type, False)
             
-            final_props: Dict[str, InterfaceProperty] = {}
-            for key, type_infos in merged_props.items():
-                merged_type = merge_type_infos(type_infos)
-                final_props[key] = InterfaceProperty(types=merged_type, is_optional=False)
-            
-            interfaces[iface_name] = InterfaceDefinition(name=iface_name, properties=final_props)
-            element_types.add(iface_name)
+            interfaces[iface_name] = InterfaceDefinition(iface_name, iface_props)
+            elem_types.add(iface_name)
         
-        return TypeInfo(kind='array', array_element_types=element_types)
+        elem_str = sort_and_union(elem_types)
+        if elem_str == "unknown":
+            return "unknown[]"
+        elif " | " in elem_str:
+            return f"({elem_str})[]"
+        else:
+            return f"{elem_str}[]"
     
     if isinstance(value, dict):
-        iface_name = allocate_interface_name(parent_key, used_names)
-        props: Dict[str, List[TypeInfo]] = {}
+        iface_name = allocate_name(key, used_names)
+        iface_props: Dict[str, InterfaceProperty] = {}
         
-        for key in value:
-            if key not in props:
-                props[key] = []
-            props[key].append(infer_type(value[key], key, interfaces, used_names))
+        for k in value:
+            type_str = infer_type_from_value(value[k], k, interfaces, used_names)
+            iface_props[k] = InterfaceProperty(type_str, False)
         
-        final_props: Dict[str, InterfaceProperty] = {}
-        for key, type_infos in props.items():
-            merged_type = merge_type_infos(type_infos)
-            final_props[key] = InterfaceProperty(types=merged_type, is_optional=False)
-        
-        interfaces[iface_name] = InterfaceDefinition(name=iface_name, properties=final_props)
-        return TypeInfo(kind='object', object_name=iface_name)
+        interfaces[iface_name] = InterfaceDefinition(iface_name, iface_props)
+        return iface_name
     
-    return TypeInfo(kind='primitive', primitive_types={'unknown'})
+    return "unknown"
 
 
-def merge_type_infos(type_infos: List[TypeInfo]) -> TypeInfo:
-    """Merge multiple TypeInfos into a single TypeInfo."""
-    all_types: Set[str] = set()
+def sort_and_union(types: Set[str]) -> str:
+    """Sort types by ASCII and join with |"""
+    if not types:
+        return "unknown"
     
-    for info in type_infos:
-        if info.kind == 'primitive':
-            for prim in info.primitive_types:
-                all_types.add(prim)
-        elif info.kind == 'array':
-            for elem in info.array_element_types:
-                all_types.add(elem + '[]')
-        elif info.kind == 'object':
-            all_types.add(info.object_name)
-    
-    # Sort by ASCII character codes
-    sorted_types = sorted(all_types, key=compare_type_strings)
+    sorted_types = sorted(types, key=char_code_key)
     
     if len(sorted_types) == 1:
-        type_str = sorted_types[0]
-        if type_str.endswith('[]'):
-            return TypeInfo(kind='array', array_element_types={type_str[:-2]})
-        elif type_str in ('null', 'string', 'number', 'boolean', 'unknown'):
-            return TypeInfo(kind='primitive', primitive_types={type_str})
-        else:
-            return TypeInfo(kind='object', object_name=type_str)
+        return sorted_types[0]
     
-    return TypeInfo(kind='union', primitive_types=set(sorted_types))
+    return " | ".join(sorted_types)
 
 
-def type_info_to_string(info: TypeInfo) -> str:
-    """Convert TypeInfo to its string representation (for intermediate use)."""
-    if info.kind == 'primitive':
-        sorted_prims = sorted(info.primitive_types, key=compare_type_strings)
-        return sorted_prims[0] if sorted_prims else 'unknown'
-    elif info.kind == 'array':
-        sorted_elems = sorted(info.array_element_types, key=compare_type_strings)
-        if len(sorted_elems) == 1:
-            return sorted_elems[0]
-        else:
-            return '(' + ' | '.join(sorted_elems) + ')'
-    elif info.kind == 'object':
-        return info.object_name
-    else:  # union
-        sorted_types = sorted(info.primitive_types, key=compare_type_strings)
-        return ' | '.join(sorted_types)
-
-
-def format_type_string(info: TypeInfo) -> str:
-    """Format TypeInfo as a type string for output in interface."""
-    if info.kind == 'primitive':
-        prims = list(info.primitive_types)
-        if len(prims) == 1:
-            return prims[0]
-        else:
-            sorted_prims = sorted(prims, key=compare_type_strings)
-            return ' | '.join(sorted_prims)
-    elif info.kind == 'array':
-        sorted_elems = sorted(info.array_element_types, key=compare_type_strings)
-        if len(sorted_elems) == 0:
-            return 'unknown[]'
-        elif len(sorted_elems) == 1:
-            return sorted_elems[0] + '[]'
-        else:
-            return '(' + ' | '.join(sorted_elems) + ')[]'
-    elif info.kind == 'object':
-        return info.object_name
-    else:  # union
-        sorted_types = sorted(info.primitive_types, key=compare_type_strings)
-        return ' | '.join(sorted_types)
+def solve(root_name: str, json_text: str) -> str:
+    """Generate TypeScript declarations for a single test case"""
+    
+    json_array = json.loads(json_text)
+    interfaces: Dict[str, InterfaceDefinition] = {}
+    used_names: Set[str] = {root_name}
+    
+    # Collect all properties from all objects
+    all_props: Dict[str, List[str]] = {}
+    prop_count: Dict[str, int] = {}
+    
+    for obj in json_array:
+        if not isinstance(obj, dict):
+            continue
+        
+        for key in obj:
+            if key not in all_props:
+                all_props[key] = []
+                prop_count[key] = 0
+            
+            type_str = infer_type_from_value(obj[key], key, interfaces, used_names)
+            all_props[key].append(type_str)
+            prop_count[key] += 1
+    
+    # Build root interface
+    root_props: Dict[str, InterfaceProperty] = {}
+    for key, types in all_props.items():
+        union_type = sort_and_union(set(types))
+        is_optional = prop_count[key] < len(json_array)
+        root_props[key] = InterfaceProperty(union_type, is_optional)
+    
+    interfaces[root_name] = InterfaceDefinition(root_name, root_props)
+    
+    # Format output
+    sorted_names = sorted(interfaces.keys(), key=char_code_key)
+    output_lines = []
+    
+    for name in sorted_names:
+        iface = interfaces[name]
+        output_lines.append(format_interface(iface))
+    
+    return "\n\n".join(output_lines)
 
 
 def format_interface(iface: InterfaceDefinition) -> str:
-    """Format an interface definition as TypeScript code."""
-    if len(iface.properties) == 0:
+    """Format an interface as TypeScript code"""
+    
+    if not iface.properties:
         return f"export interface {iface.name} {{}}"
     
     lines = [f"export interface {iface.name} {{"]
     
-    # Sort properties by ASCII order (case-sensitive)
-    sorted_props = sorted(iface.properties.items(), key=lambda x: compare_type_strings(x[0]))
+    # Sort properties by ASCII
+    sorted_props = sorted(iface.properties.items(), key=lambda x: char_code_key(x[0]))
     
     for key, prop in sorted_props:
-        optional = '?' if prop.is_optional else ''
-        type_str = format_type_string(prop.types)
-        lines.append(f"  {key}{optional}: {type_str};")
+        optional = "?" if prop.is_optional else ""
+        lines.append(f"  {key}{optional}: {prop.type_str};")
     
     lines.append("}")
-    return '\n'.join(lines)
-
-
-def solve(root_name: str, json_text: str) -> str:
-    """Generate TypeScript type declarations from JSON data."""
-    json_data = json.loads(json_text)
-    
-    interfaces: Dict[str, InterfaceDefinition] = {}
-    used_names: Set[str] = {root_name}
-    
-    # Process all objects in the array
-    merged_props: Dict[str, List[TypeInfo]] = {}
-    prop_presence: Dict[str, int] = {}  # count of objects where key is present
-    
-    for obj in json_data:
-        if isinstance(obj, dict):
-            for key in obj:
-                if key not in merged_props:
-                    merged_props[key] = []
-                    prop_presence[key] = 0
-                merged_props[key].append(infer_type(obj[key], key, interfaces, used_names))
-                prop_presence[key] += 1
-    
-    # Build root interface
-    root_props: Dict[str, InterfaceProperty] = {}
-    for key, type_infos in merged_props.items():
-        merged_type = merge_type_infos(type_infos)
-        is_optional = prop_presence[key] < len(json_data)
-        root_props[key] = InterfaceProperty(types=merged_type, is_optional=is_optional)
-    
-    interfaces[root_name] = InterfaceDefinition(name=root_name, properties=root_props)
-    
-    # Output all interfaces in sorted order (ASCII)
-    sorted_names = sorted(interfaces.keys(), key=compare_type_strings)
-    output = []
-    
-    for name in sorted_names:
-        iface = interfaces[name]
-        output.append(format_interface(iface))
-    
-    return '\n\n'.join(output)
+    return "\n".join(lines)
 
 
 def main():
+    """Main entry point"""
     lines = sys.stdin.read().split('\n')
-    t = int(lines[0])
+    t = int(lines[0].strip())
+    
+    results = []
+    idx = 1
+    
+    for _ in range(t):
+        root_name = lines[idx].strip()
+        json_text = lines[idx + 1].strip()
+        idx += 2
+        
+        result = solve(root_name, json_text)
+        results.append(result)
+    
+    sys.stdout.write("\n---\n".join(results) + "\n")
 
-    blocks = []
-    for i in range(t):
-        root_name = lines[1 + 2 * i]
-        json_text = lines[2 + 2 * i]
-        blocks.append(solve(root_name, json_text))
 
-    sys.stdout.write('\n---\n'.join(blocks) + '\n')
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
