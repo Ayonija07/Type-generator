@@ -42,6 +42,11 @@ def allocate_interface_name(base_key: str, used_names: Set[str]) -> str:
     return name
 
 
+def compare_type_strings(a: str, b: str) -> tuple:
+    """Return tuple of ord values for proper ASCII comparison."""
+    return tuple(ord(c) for c in a)
+
+
 def infer_type(
     value: Any,
     parent_key: str,
@@ -128,7 +133,8 @@ def merge_type_infos(type_infos: List[TypeInfo]) -> TypeInfo:
         elif info.kind == 'object':
             all_types.add(info.object_name)
     
-    sorted_types = sorted(all_types, key=lambda x: tuple(ord(c) for c in x))
+    # Sort by ASCII character codes
+    sorted_types = sorted(all_types, key=compare_type_strings)
     
     if len(sorted_types) == 1:
         type_str = sorted_types[0]
@@ -143,12 +149,12 @@ def merge_type_infos(type_infos: List[TypeInfo]) -> TypeInfo:
 
 
 def type_info_to_string(info: TypeInfo) -> str:
-    """Convert TypeInfo to its string representation."""
+    """Convert TypeInfo to its string representation (for intermediate use)."""
     if info.kind == 'primitive':
-        sorted_prims = sorted(info.primitive_types, key=lambda x: tuple(ord(c) for c in x))
+        sorted_prims = sorted(info.primitive_types, key=compare_type_strings)
         return sorted_prims[0] if sorted_prims else 'unknown'
     elif info.kind == 'array':
-        sorted_elems = sorted(info.array_element_types, key=lambda x: tuple(ord(c) for c in x))
+        sorted_elems = sorted(info.array_element_types, key=compare_type_strings)
         if len(sorted_elems) == 1:
             return sorted_elems[0]
         else:
@@ -156,16 +162,21 @@ def type_info_to_string(info: TypeInfo) -> str:
     elif info.kind == 'object':
         return info.object_name
     else:  # union
-        sorted_types = sorted(info.primitive_types, key=lambda x: tuple(ord(c) for c in x))
+        sorted_types = sorted(info.primitive_types, key=compare_type_strings)
         return ' | '.join(sorted_types)
 
 
 def format_type_string(info: TypeInfo) -> str:
-    """Format TypeInfo as a type string for output."""
+    """Format TypeInfo as a type string for output in interface."""
     if info.kind == 'primitive':
-        return list(info.primitive_types)[0]
+        prims = list(info.primitive_types)
+        if len(prims) == 1:
+            return prims[0]
+        else:
+            sorted_prims = sorted(prims, key=compare_type_strings)
+            return ' | '.join(sorted_prims)
     elif info.kind == 'array':
-        sorted_elems = sorted(info.array_element_types, key=lambda x: tuple(ord(c) for c in x))
+        sorted_elems = sorted(info.array_element_types, key=compare_type_strings)
         if len(sorted_elems) == 0:
             return 'unknown[]'
         elif len(sorted_elems) == 1:
@@ -175,7 +186,7 @@ def format_type_string(info: TypeInfo) -> str:
     elif info.kind == 'object':
         return info.object_name
     else:  # union
-        sorted_types = sorted(info.primitive_types, key=lambda x: tuple(ord(c) for c in x))
+        sorted_types = sorted(info.primitive_types, key=compare_type_strings)
         return ' | '.join(sorted_types)
 
 
@@ -186,8 +197,8 @@ def format_interface(iface: InterfaceDefinition) -> str:
     
     lines = [f"export interface {iface.name} {{"]
     
-    # Sort properties by ASCII order
-    sorted_props = sorted(iface.properties.items(), key=lambda x: tuple(ord(c) for c in x[0]))
+    # Sort properties by ASCII order (case-sensitive)
+    sorted_props = sorted(iface.properties.items(), key=lambda x: compare_type_strings(x[0]))
     
     for key, prop in sorted_props:
         optional = '?' if prop.is_optional else ''
@@ -227,8 +238,8 @@ def solve(root_name: str, json_text: str) -> str:
     
     interfaces[root_name] = InterfaceDefinition(name=root_name, properties=root_props)
     
-    # Output all interfaces in sorted order
-    sorted_names = sorted(interfaces.keys(), key=lambda x: tuple(ord(c) for c in x))
+    # Output all interfaces in sorted order (ASCII)
+    sorted_names = sorted(interfaces.keys(), key=compare_type_strings)
     output = []
     
     for name in sorted_names:
