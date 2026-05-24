@@ -1,0 +1,27 @@
+13
+RootType
+[{"name":"Alice","age":30,"active":true},{"name":"Bob","age":25,"active":false}]
+RootType
+[{"id":1,"name":"Alice","email":"alice@example.com"},{"id":2,"name":"Bob"},{"id":3,"name":"Charlie","email":null}]
+RootType
+[{"id":1,"name":"Alice","address":{"street":"123 Main St","city":"Springfield","zip":"62701"}},{"id":2,"name":"Bob","address":{"street":"456 Oak Ave","city":"Shelbyville"}}]
+RootType
+[{"id":1,"tags":["admin","user"],"scores":[95,87,92]},{"id":2,"tags":["guest"],"scores":[78,81]},{"id":3,"tags":[],"scores":[88],"metadata":{"source":"import"}}]
+RootType
+[{"id":1,"value":"hello","items":[1,"two",true]},{"id":"abc","value":42,"items":[null,3]}]
+RootType
+[{"user":{"profile":{"name":"Alice","avatar":{"url":"https://img.example.com/a.png","width":100,"height":100}},"settings":{"theme":"dark","notifications":true}},"posts":[{"title":"Hello","likes":5},{"title":"World","likes":12,"pinned":true}]},{"user":{"profile":{"name":"Bob","avatar":null},"settings":{"theme":"light","notifications":false,"language":"en"}},"posts":[]}]
+RootType
+[]
+RootType
+[{"a":null,"b":1},{"a":null,"b":null},{"b":2}]
+RootType
+[{"billing":{"address":{"city":"NYC"}},"shipping":{"address":{"city":"LA","zip":"90001"}}}]
+Data
+[{"config":{"retries":3}},{"config":null},{}]
+RootType
+[{"data":[1,2,3]},{"data":"raw"}]
+RootType
+[{"items":[1,{"label":"x"},"hello",{"label":"y","count":5}]}]
+Config
+[{"config":{"timeout":30},"name":"app"}]
