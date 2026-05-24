@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
+# Input : line 1 = T; then per case: line A = root name, line B = compact JSON.
+# Output: per-case blocks joined by a line `---`, ending with one '\n'.
+
 import sys
 import json
-from typing import Any, Dict, Set, List, Tuple
+from typing import Any, Dict, Set, List
 from dataclasses import dataclass, field
+
 
 @dataclass
 class TypeInfo:
@@ -11,33 +15,18 @@ class TypeInfo:
     array_element_types: Set[str] = field(default_factory=set)
     object_name: str = ""
 
+
 @dataclass
 class InterfaceProperty:
     types: TypeInfo
     is_optional: bool
+
 
 @dataclass
 class InterfaceDefinition:
     name: str
     properties: Dict[str, InterfaceProperty] = field(default_factory=dict)
 
-def compare_ascii(a: str, b: str) -> int:
-    """Compare two strings using ASCII order."""
-    if a < b:
-        return -1
-    elif a > b:
-        return 1
-    else:
-        return 0
-
-def compare_type_strings(a: str, b: str) -> int:
-    """Compare type strings by ASCII character codes."""
-    for i in range(min(len(a), len(b))):
-        code_a = ord(a[i])
-        code_b = ord(b[i])
-        if code_a != code_b:
-            return code_a - code_b
-    return len(a) - len(b)
 
 def allocate_interface_name(base_key: str, used_names: Set[str]) -> str:
     """Allocate a unique interface name based on the key."""
@@ -51,6 +40,7 @@ def allocate_interface_name(base_key: str, used_names: Set[str]) -> str:
     
     used_names.add(name)
     return name
+
 
 def infer_type(
     value: Any,
@@ -123,6 +113,7 @@ def infer_type(
     
     return TypeInfo(kind='primitive', primitive_types={'unknown'})
 
+
 def merge_type_infos(type_infos: List[TypeInfo]) -> TypeInfo:
     """Merge multiple TypeInfos into a single TypeInfo."""
     all_types: Set[str] = set()
@@ -150,6 +141,7 @@ def merge_type_infos(type_infos: List[TypeInfo]) -> TypeInfo:
     
     return TypeInfo(kind='union', primitive_types=set(sorted_types))
 
+
 def type_info_to_string(info: TypeInfo) -> str:
     """Convert TypeInfo to its string representation."""
     if info.kind == 'primitive':
@@ -166,6 +158,7 @@ def type_info_to_string(info: TypeInfo) -> str:
     else:  # union
         sorted_types = sorted(info.primitive_types, key=lambda x: tuple(ord(c) for c in x))
         return ' | '.join(sorted_types)
+
 
 def format_type_string(info: TypeInfo) -> str:
     """Format TypeInfo as a type string for output."""
@@ -185,6 +178,7 @@ def format_type_string(info: TypeInfo) -> str:
         sorted_types = sorted(info.primitive_types, key=lambda x: tuple(ord(c) for c in x))
         return ' | '.join(sorted_types)
 
+
 def format_interface(iface: InterfaceDefinition) -> str:
     """Format an interface definition as TypeScript code."""
     if len(iface.properties) == 0:
@@ -203,10 +197,13 @@ def format_interface(iface: InterfaceDefinition) -> str:
     lines.append("}")
     return '\n'.join(lines)
 
-def generate_type_declaration(root_type_name: str, json_data: List[Dict]) -> str:
+
+def solve(root_name: str, json_text: str) -> str:
     """Generate TypeScript type declarations from JSON data."""
+    json_data = json.loads(json_text)
+    
     interfaces: Dict[str, InterfaceDefinition] = {}
-    used_names: Set[str] = {root_type_name}
+    used_names: Set[str] = {root_name}
     
     # Process all objects in the array
     merged_props: Dict[str, List[TypeInfo]] = {}
@@ -228,7 +225,7 @@ def generate_type_declaration(root_type_name: str, json_data: List[Dict]) -> str
         is_optional = prop_presence[key] < len(json_data)
         root_props[key] = InterfaceProperty(types=merged_type, is_optional=is_optional)
     
-    interfaces[root_type_name] = InterfaceDefinition(name=root_type_name, properties=root_props)
+    interfaces[root_name] = InterfaceDefinition(name=root_name, properties=root_props)
     
     # Output all interfaces in sorted order
     sorted_names = sorted(interfaces.keys(), key=lambda x: tuple(ord(c) for c in x))
@@ -240,25 +237,19 @@ def generate_type_declaration(root_type_name: str, json_data: List[Dict]) -> str
     
     return '\n\n'.join(output)
 
+
 def main():
-    """Main function to process input and generate output."""
-    lines = sys.stdin.readlines()
-    T = int(lines[0].strip())
-    
-    results = []
-    line_idx = 1
-    
-    for t in range(T):
-        root_type_name = lines[line_idx].strip()
-        line_idx += 1
-        json_str = lines[line_idx].strip()
-        line_idx += 1
-        
-        json_data = json.loads(json_str)
-        result = generate_type_declaration(root_type_name, json_data)
-        results.append(result)
-    
-    sys.stdout.write('\n---\n'.join(results) + '\n')
+    lines = sys.stdin.read().split('\n')
+    t = int(lines[0])
+
+    blocks = []
+    for i in range(t):
+        root_name = lines[1 + 2 * i]
+        json_text = lines[2 + 2 * i]
+        blocks.append(solve(root_name, json_text))
+
+    sys.stdout.write('\n---\n'.join(blocks) + '\n')
+
 
 if __name__ == '__main__':
     main()
